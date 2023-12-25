@@ -8,12 +8,12 @@
 struct keyval_t {
   const char *key;
   void *val;
-  int (*hdl)(void *, const void *);
+  int (*hdl)(void *, const char *, const char **err);
   bool close;
 };
 
 keyval_t *conf_kv_init(const char *key, void *val, int (*hdl)(void *,
-    const void *)) {
+    const char *, const char **err)) {
   keyval_t *kv = malloc(sizeof *kv);
   if (kv == NULL) {
     return NULL;
@@ -27,6 +27,17 @@ keyval_t *conf_kv_init(const char *key, void *val, int (*hdl)(void *,
 
 bool conf_kv_isclose(const keyval_t *kv) {
   return kv->close;
+}
+
+const char *conf_kv_getkey(const keyval_t *kv) {
+  return kv->key;
+}
+
+void conf_kv_dispose(keyval_t **kv) {
+  if (kv != NULL) {
+    free(*kv);
+    *kv = NULL;
+  }
 }
 
 //  fnlines : lis sur le flot associé à f, tous les charactères d'une ligne.
@@ -68,11 +79,10 @@ static const char *prefix(const char *s1, const char *s2) {
   }
 }
 
-int conf_process(keyval_t **akv, size_t len, FILE *f) {
+int conf_process(keyval_t **akv, size_t len, FILE *f, const char **err) {
   da *line = da_empty(sizeof(char));
   if (line == NULL) {
-    fclose(f);
-    return -1;
+    return ERROR_ALLOC;
   }
   while (!feof(f) && fnlines(f, line) == 0) {
     if (da_length(line) > 1 && *((char *) da_nth(line, 0)) != COMMENT) {
@@ -81,8 +91,9 @@ int conf_process(keyval_t **akv, size_t len, FILE *f) {
       while (cur < akv + len) {
         const char *t = prefix((*cur)->key, l);
         if (t != NULL && *t == SEPARATOR) {
-          if ((*cur)->hdl((*cur)->val, (void *) (t + 1)) != 0) {
-            return -1;
+          if ((*cur)->hdl((*cur)->val, (void *) (t + 1), err) != 0) {
+            da_dispose(&line);
+            return (int) (cur - akv) / (int) sizeof *akv + 1;
           }
           (*cur)->close = true;
           break;
@@ -90,7 +101,8 @@ int conf_process(keyval_t **akv, size_t len, FILE *f) {
         ++cur;
       }
       if (cur == akv + len) {
-        return -1;
+        da_dispose(&line);
+        return ERROR_UNKNOWN;
       }
     }
     da_reset(line);

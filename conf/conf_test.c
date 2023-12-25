@@ -13,10 +13,11 @@ typedef struct {
   size_t fifo_length;
 } conf_t;
 
-static int str_cpy(char *d, const char *s);
-static int str_tos(size_t *d, const char *s);
+static int str_cpy(char *d, const char *s, const char **err);
+static int str_tos(size_t *d, const char *s, const char **err);
 static int kv_all_close(keyval_t **akv, size_t nmemb);
 static int kv_once_null(keyval_t **akv, size_t nmemb);
+static void kv_all_dispose(keyval_t **akv, size_t nmemb);
 
 int main(int argc, char *argv[]) {
   if (argc < 2) {
@@ -28,28 +29,57 @@ int main(int argc, char *argv[]) {
     fprintf(stderr, "*** Error: Cannot found file \"%s\".\n", argv[1]);
     return EXIT_FAILURE;
   }
+  int r = EXIT_FAILURE;
   conf_t conf;
   keyval_t *akv[] = {
     conf_kv_init("FIFO_NAME", conf.fifo_name,
-        (int (*)(void *, const void *))str_cpy),
+        (int (*)(void *, const char *, const char **))str_cpy),
     conf_kv_init("FIFO_LENGTH", &conf.fifo_length,
-        (int (*)(void *, const void *))str_tos),
+        (int (*)(void *, const char *, const char **))str_tos),
   };
   if (kv_once_null(akv, ALEN(akv)) != 0) {
-    fprintf(stderr, "*** Error: Not enought memory\n");
-    return EXIT_FAILURE;
+    goto err_allocation;
   }
-  if (conf_process(akv, ALEN(akv), f) != 0) {
-    fprintf(stderr, "*** Error: Cannot process the config file\n");
-    return EXIT_FAILURE;
+  const char *err;
+  int cp;
+  if ((cp = conf_process(akv, ALEN(akv), f, &err)) != 0) {
+    switch (cp) {
+      case ERROR_UNKNOWN:
+        fprintf(stderr, "*** Error: The config file, contains a invalid key\n");
+        break;
+      case ERROR_ALLOC:
+        goto err_allocation;
+      default:
+        fprintf(stderr, "*** Error: \"%s\", on key \"%s\".\n", err,
+            conf_kv_getkey(akv[cp - 1]));
+    }
+    goto error;
   }
   if (kv_all_close(akv, ALEN(akv)) != 0) {
     fprintf(stderr, "*** Error: All key is needed\n");
-    return EXIT_FAILURE;
+    goto error;
   }
   printf("fifo_name: %s\n", conf.fifo_name);
   printf("fifo_length: %zu\n", conf.fifo_length);
-  return EXIT_SUCCESS;
+  if (fclose(f) != 0) {
+    f = NULL;
+    goto err_file;
+  }
+  f = NULL;
+  goto dispose;
+err_file:
+  fprintf(stderr, "*** Error: On processing the file\n");
+  goto error;
+err_allocation:
+  fprintf(stderr, "*** Error: Not enought memory\n");
+error:
+  r = EXIT_FAILURE;
+dispose:
+  kv_all_dispose(akv, ALEN(akv));
+  if (f != NULL) {
+    fclose(f);
+  }
+  return r;
 }
 
 int kv_once_null(keyval_t **akv, size_t nmemb) {
@@ -70,22 +100,31 @@ int kv_all_close(keyval_t **akv, size_t nmemb) {
   return 0;
 }
 
-int str_cpy(char *d, const char *s) {
+void kv_all_dispose(keyval_t **akv, size_t nmemb) {
+  for (size_t k = 0; k < nmemb; ++k) {
+    conf_kv_dispose(&akv[k]);
+  }
+}
+
+int str_cpy(char *d, const char *s, const char **err) {
   if (strlen(s) >= NAME_MAX) {
+    *err = "Value is too long";
     return -1;
   }
   strcpy(d, s);
   return 0;
 }
 
-int str_tos(size_t *d, const char *s) {
+int str_tos(size_t *d, const char *s, const char **err) {
   char *end;
   errno = 0;
   long int r = strtol(s, &end, 10);
   if (errno != 0 || *end != '\0') {
+    *err = "Invalid number";
     return -1;
   }
   if (r < 0) {
+    *err = "Only positive number";
     return -1;
   }
   *d = (size_t) r;
