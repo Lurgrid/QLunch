@@ -82,6 +82,7 @@ static const char *prefix(const char *s1, const char *s2) {
 int conf_process(keyval_t **akv, size_t len, FILE *f, const char **err) {
   da *line = da_empty(sizeof(char));
   if (line == NULL) {
+    *err = NULL;
     return ERROR_ALLOC;
   }
   while (!feof(f) && fnlines(f, line) == 0) {
@@ -102,11 +103,13 @@ int conf_process(keyval_t **akv, size_t len, FILE *f, const char **err) {
       }
       if (cur == akv + len) {
         da_dispose(&line);
+        *err = NULL;
         return ERROR_UNKNOWN;
       }
     }
     da_reset(line);
   }
   da_dispose(&line);
+  *err = NULL;
   return 0;
 }

@@ -50,6 +50,19 @@ extern const char *conf_kv_getkey(const keyval_t *kv);
 //    allouées à la gestion de la clef-valeur pointé par kv et met *kv à NULL.
 extern void conf_kv_dispose(keyval_t **kv);
 
+//  conf_process : akv est un tableau de len clef-valeur supporter lors de ce
+//    traitement.
+//    La fonction effectue le traitement suivant :
+//    - si il y a eu une erreur d'allocation alors renvoie ERROR_ALLOC et *err
+//      pointe sur NULL
+//    - si toutes les clef-valeur du fichier pointé par f ont été traiter sans
+//        erreur alors renvoie 0, *err pointe sur NULL
+//    - sinon, si lors d'une traitement d'une clef-valeur:
+//        .La clef-valeur n'est pas présente dans akv alors renvoie
+//          ERROR_UNKNOWN et *err pointe sur NULL
+//        .En cas d'une erreur l'ors du traitement de la clef-valeur par sa
+//          fonction, alors renvoie son indice dans akv plus 1 et *err pointe
+//          sur un message représentant l'erreur.
 extern int conf_process(keyval_t **akv, size_t len, FILE *f, const char **err);
 
 #endif
