@@ -5,7 +5,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-#define NAME "/shm_custom"
+#define NAME "shm_custom"
 #define LEN 2048
 
 #define NB 16

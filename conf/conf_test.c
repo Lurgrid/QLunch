@@ -42,7 +42,8 @@ int main(int argc, char *argv[]) {
   }
   const char *err;
   int cp;
-  if ((cp = conf_process(akv, ALEN(akv), f, &err)) != 0) {
+  size_t index;
+  if ((cp = conf_process(akv, ALEN(akv), f, &index, &err)) != DONE) {
     switch (cp) {
       case ERROR_UNKNOWN:
         fprintf(stderr, "*** Error: The config file, contains a invalid key\n");
@@ -51,7 +52,7 @@ int main(int argc, char *argv[]) {
         goto err_allocation;
       default:
         fprintf(stderr, "*** Error: \"%s\", on key \"%s\".\n", err,
-            conf_kv_getkey(akv[cp - 1]));
+            conf_kv_getkey(akv[index]));
     }
     goto error;
   }
@@ -66,7 +67,7 @@ int main(int argc, char *argv[]) {
     goto err_file;
   }
   f = NULL;
-  goto dispose;
+  goto dispose; // imo avec le prof je suis pas sur que mettre des goto est une bonne idées
 err_file:
   fprintf(stderr, "*** Error: On processing the file\n");
   goto error;
@@ -119,7 +120,7 @@ int str_tos(size_t *d, const char *s, const char **err) {
   char *end;
   errno = 0;
   long int r = strtol(s, &end, 10);
-  if (errno != 0 || *end != '\0') {
+  if (errno != 0 || *end != '\0') {// il faut différencier le cas de c'est pas un nombre de le nombre est trop grand
     *err = "Invalid number";
     return -1;
   }

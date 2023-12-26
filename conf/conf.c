@@ -2,9 +2,13 @@
 
 #include "conf.h"
 #include "da.h"
-#include <stdio.h>
 #include <string.h>
 
+//  keyval_t : structure permettant la gestion de couple clé-valeur. key
+//    représente le nom de la clé. val pointe sur la valeur obtenue après avoir
+//    traiter ce qui suit la clé key dans le fichier de configuration par la
+//    fonction hdl. close est un boolean permettant de savoir si la clé à déjà
+//    était traiter.
 struct keyval_t {
   const char *key;
   void *val;
@@ -79,29 +83,32 @@ static const char *prefix(const char *s1, const char *s2) {
   }
 }
 
-int conf_process(keyval_t **akv, size_t len, FILE *f, const char **err) {
+process_t conf_process(keyval_t **akv, size_t nmemb, FILE *f, size_t *index,
+  const char **err) {
   da *line = da_empty(sizeof(char));
   if (line == NULL) {
     *err = NULL;
     return ERROR_ALLOC;
   }
-  while (!feof(f) && fnlines(f, line) == 0) {
+  int r = 0;
+  while (!feof(f) && (r = fnlines(f, line)) == 0) {
     if (da_length(line) > 1 && *((char *) da_nth(line, 0)) != COMMENT) {
       const char *l = (const char *) da_nth(line, 0);
       keyval_t **cur = akv;
-      while (cur < akv + len) {
+      while (cur < akv + nmemb) {
         const char *t = prefix((*cur)->key, l);
         if (t != NULL && *t == SEPARATOR) {
           if ((*cur)->hdl((*cur)->val, (void *) (t + 1), err) != 0) {
             da_dispose(&line);
-            return (int) (cur - akv) / (int) sizeof *akv + 1;
+            *index = (size_t) (cur - akv) / sizeof *akv;
+            return ERROR_PROCESS;
           }
           (*cur)->close = true;
           break;
         }
         ++cur;
       }
-      if (cur == akv + len) {
+      if (cur == akv + nmemb) {
         da_dispose(&line);
         *err = NULL;
         return ERROR_UNKNOWN;
@@ -111,5 +118,5 @@ int conf_process(keyval_t **akv, size_t len, FILE *f, const char **err) {
   }
   da_dispose(&line);
   *err = NULL;
-  return 0;
+  return r == 0 ? DONE : ERROR_ALLOC;
 }

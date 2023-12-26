@@ -13,7 +13,15 @@
 #include <sys/stat.h>
 #include <sys/mman.h>
 #include <sys/types.h>
+#include <string.h>
+#include <stdint.h>
 
+// fifo_t : mutex le sémaphore d'accés au donner de la file. empty le sémaphore
+//    décrivant le nombre de place restante dans la file. full le sémaphore
+//    décrivant le nombre d'élément actuellement dans la file. len le nombre
+//    maximum d'élément dans la file. curr l'indice de la tête courante de la
+//    file. curw le curseur d'écriture de la file. fifo un talbeau cirsulaire
+//    correspondant à la file.
 struct fifo_t {
   sem_t mutex;
   sem_t empty;
@@ -25,26 +33,45 @@ struct fifo_t {
 };
 
 fifo_t *shm_fifo_init(const char *name, unsigned int length) {
-  int shm_fd = shm_open(name, O_RDWR | O_CREAT | O_EXCL, S_IRUSR | S_IWUSR);
+  char shm_name[NAME_MAX + 1];
+  shm_name[0] = '/';
+  strcpy(shm_name, name);
+  int shm_fd = shm_open(shm_name, O_RDWR | O_CREAT | O_EXCL, S_IRUSR | S_IWUSR);
   if (shm_fd == -1) {
     return NULL;
   }
   fifo_t *d;
-  if (ftruncate(shm_fd, (off_t) (sizeof *d + length * sizeof(pid_t))) != 0) {
+  if (length > UINT_MAX - sizeof *d
+      || length + sizeof *d > UINT_MAX / sizeof(pid_t)) {
+    close(shm_fd);
     return NULL;
   }
-  d = mmap(NULL, sizeof *d + length * sizeof(pid_t), PROT_READ | PROT_WRITE,
-          MAP_SHARED, shm_fd, 0);
+  size_t size = sizeof *d + length * sizeof(pid_t);
+  if (ftruncate(shm_fd, (off_t) size) != 0) {
+    close(shm_fd);
+    return NULL;
+  }
+  d = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
   if (d == MAP_FAILED) {
+    close(shm_fd);
     return NULL;
   }
   if (sem_init(&d->mutex, 1, 1) != 0) {
+    close(shm_fd);
+    munmap(d, size);
     return NULL;
   }
   if (sem_init(&d->full, 1, 0) != 0) {
+    close(shm_fd);
+    munmap(d, size);
+    sem_destroy(&d->mutex);
     return NULL;
   }
   if (sem_init(&d->empty, 1, length) != 0) {
+    close(shm_fd);
+    munmap(d, size);
+    sem_destroy(&d->mutex);
+    sem_destroy(&d->full);
     return NULL;
   }
   d->curr = 0;
@@ -54,14 +81,17 @@ fifo_t *shm_fifo_init(const char *name, unsigned int length) {
 }
 
 fifo_t *shm_fifo_open(const char *name, unsigned int length) {
-  int shm_fd = shm_open(name, O_RDWR, S_IRUSR | S_IWUSR);
+  char shm_name[NAME_MAX + 1];
+  shm_name[0] = '/';
+  strcpy(shm_name, name);
+  int shm_fd = shm_open(shm_name, O_RDWR, S_IRUSR | S_IWUSR);
   if (shm_fd == -1) {
     return NULL;
   }
-  fifo_t *d;
-  d = mmap(NULL, sizeof *d + length * sizeof(pid_t), PROT_READ | PROT_WRITE,
-          MAP_SHARED, shm_fd, 0);
+  fifo_t *d = mmap(NULL, sizeof *d + length * sizeof(pid_t),
+      PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
   if (d == MAP_FAILED) {
+    close(shm_fd);
     return NULL;
   }
   return d;
@@ -124,5 +154,8 @@ int shm_fifo_dispose(fifo_t **f) {
 }
 
 int shm_fifo_unlink(const char *name) {
-  return shm_unlink(name);
+  char shm_name[NAME_MAX + 1];
+  shm_name[0] = '/';
+  strcpy(shm_name, name);
+  return shm_unlink(shm_name);
 }
