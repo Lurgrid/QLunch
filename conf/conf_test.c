@@ -67,7 +67,7 @@ int main(int argc, char *argv[]) {
     goto err_file;
   }
   f = NULL;
-  goto dispose; // imo avec le prof je suis pas sur que mettre des goto est une bonne idées
+  goto dispose;
 err_file:
   fprintf(stderr, "*** Error: On processing the file\n");
   goto error;
@@ -120,7 +120,7 @@ int str_tos(size_t *d, const char *s, const char **err) {
   char *end;
   errno = 0;
   long int r = strtol(s, &end, 10);
-  if (errno != 0 || *end != '\0') {// il faut différencier le cas de c'est pas un nombre de le nombre est trop grand
+  if (errno != 0 || *end != '\0') {
     *err = "Invalid number";
     return -1;
   }

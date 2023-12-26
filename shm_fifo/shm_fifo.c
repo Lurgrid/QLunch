@@ -16,12 +16,13 @@
 #include <string.h>
 #include <stdint.h>
 
-// fifo_t : mutex le sémaphore d'accés au donner de la file. empty le sémaphore
-//    décrivant le nombre de place restante dans la file. full le sémaphore
-//    décrivant le nombre d'élément actuellement dans la file. len le nombre
-//    maximum d'élément dans la file. curr l'indice de la tête courante de la
-//    file. curw le curseur d'écriture de la file. fifo un talbeau cirsulaire
-//    correspondant à la file.
+//  fifo_t : structure regroupant les champs néccéssaire à la gestion d'une file
+//    synchroniser. mutex le sémaphore d'accés au donner de la file. empty le
+//    sémaphore décrivant le nombre de place restante dans la file. full le
+//    sémaphore décrivant le nombre d'élément actuellement dans la file. len le
+//    nombre maximum d'élément dans la file. curr l'indice de la tête courante
+//    de la file. curw le curseur d'écriture de la file. fifo un talbeau
+//    circulaire correspondant à la file.
 struct fifo_t {
   sem_t mutex;
   sem_t empty;
