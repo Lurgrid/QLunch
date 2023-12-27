@@ -7,3 +7,6 @@ dist: clean
 
 clean:
 	$(MAKE) -C conf clean
+	$(MAKE) -C client clean
+	$(MAKE) -C server clean
+	$(MAKE) -C shm_fifo clean

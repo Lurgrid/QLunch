@@ -31,6 +31,8 @@
 //  NUMBER_THREAD : nombre de thread
 #define NUMBER_THREAD 2
 
+#define REPL ">>> "
+
 typedef struct {
   char fifo_name[NAME_MAX];
   unsigned int fifo_length;
@@ -67,6 +69,8 @@ static void dispose_all(fifo_t **fifo, char tubes[NUMBER_PIPE][PATH_MAX]);
 
 static int write_char(int desc, da *buff);
 
+static int write_char_buff(int desc, const char *buffer, size_t length);
+
 static void *read_write(file_t *f);
 
 int main(void) {
@@ -74,7 +78,7 @@ int main(void) {
   process_conf_file(&conf);
   char tubes[NUMBER_PIPE][PATH_MAX];
   for (size_t i = 0; i < NUMBER_PIPE; ++i) {
-    if (snprintf(tubes[i], PATH_MAX - 1, "%d_%zu", getpid(), i) <= 0) {
+    if (snprintf(tubes[i], PATH_MAX - 1, "/tmp/%d_%zu", getpid(), i) <= 0) {
       fprintf(stderr, "Error on creating communication tool.\n");
       return EXIT_FAILURE;
     }
@@ -122,10 +126,7 @@ int main(void) {
         "\n");
     exit(EXIT_FAILURE);
   }
-  files[0].in = tubes_desc[1];
-  files[0].out = STDOUT_FILENO;
-  files[1].in = tubes_desc[2];
-  files[1].out = STDERR_FILENO;
+  write_char_buff(STDOUT_FILENO, REPL, strlen(REPL));
   do {
     n = read(STDIN_FILENO, buff, BUFF_LENGTH);
     if (n == -1) {
@@ -142,31 +143,39 @@ int main(void) {
         }
         continue;
       }
+      char t = '\0';
+      if (da_add(line, &t) == NULL) {
+        dispose_all(&f, tubes);
+        fprintf(stderr, "Error on reading command. Not enougth memory.\n");
+        return EXIT_FAILURE;
+      }
       if (shm_fifo_enqueue(f, getpid()) != 0) {
         dispose_all(&f, tubes);
         fprintf(stderr, "Error on communication the command to the server.\n");
         return EXIT_FAILURE;
       }
-      if (tubes_desc[0] == -1) {
-        for (size_t i = 0; i < NUMBER_PIPE; ++i) {
-          tubes_desc[i] = open(tubes[i], (i != 0 ? O_RDONLY : O_WRONLY));
-          if (tubes_desc[i] == -1) {
-            dispose_all(&f, tubes);
-            fprintf(stderr,
-                "Error on communication the command to the server.\n");
-            exit(EXIT_FAILURE);
-          }
+      for (size_t i = 0; i < NUMBER_PIPE; ++i) {
+        tubes_desc[i] = open(tubes[i], (i != 0 ? O_RDONLY : O_WRONLY));
+        if (tubes_desc[i] == -1) {
+          dispose_all(&f, tubes);
+          fprintf(stderr,
+              "Error on communication the command to the server.\n");
+          exit(EXIT_FAILURE);
         }
-        for (size_t i = 0; i < NUMBER_THREAD; ++i) {
-          if (pthread_create(threads + i, NULL, (void *(*)(void *))read_write,
-              files + i) != 0) {
-            free(files);
-            dispose_all(&f, tubes);
-            fprintf(stderr,
-                "Error on communication the command to the server. Not enougth "
-                "memory.\n");
-            exit(EXIT_FAILURE);
-          }
+      }
+      files[0].in = tubes_desc[1];
+      files[0].out = STDOUT_FILENO;
+      files[1].in = tubes_desc[2];
+      files[1].out = STDERR_FILENO;
+      for (size_t i = 0; i < NUMBER_THREAD; ++i) {
+        if (pthread_create(threads + i, NULL, (void *(*)(void *))read_write,
+            files + i) != 0) {
+          free(files);
+          dispose_all(&f, tubes);
+          fprintf(stderr,
+              "Error on communication the command to the server. Not enougth "
+              "memory.\n");
+          exit(EXIT_FAILURE);
         }
       }
       if (write_char(tubes_desc[0], line) != 0) {
@@ -183,9 +192,21 @@ int main(void) {
           exit(EXIT_FAILURE);
         }
       }
+      for (size_t i = 0; i < NUMBER_PIPE; ++i) {
+        if (close(tubes_desc[i]) != 0) {
+          dispose_all(&f, tubes);
+          fprintf(stderr,
+              "Error on communication the command to the server.\n");
+          exit(EXIT_FAILURE);
+        }
+      }
+      write_char_buff(STDOUT_FILENO, REPL, strlen(REPL));
       da_reset(line);
     }
   } while (n > 0);
+  dispose_all(&f, tubes);
+  da_dispose(&line);
+  free(files);
   return EXIT_SUCCESS;
 }
 
@@ -305,9 +326,9 @@ void dispose_all(fifo_t **fifo, char tubes[NUMBER_PIPE][PATH_MAX]) {
 
 int write_char(int desc, da *buff) {
   size_t nb_write = 0;
-  while (nb_write != da_length(buff) - 1) {
+  while (nb_write != da_length(buff)) {
     ssize_t n = write(desc, da_nth(buff, nb_write),
-        da_length(buff) - nb_write - 1);
+        da_length(buff) - nb_write);
     if (n == -1) {
       return -1;
     }

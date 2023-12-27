@@ -10,8 +10,13 @@
 #include <limits.h>
 #include <string.h>
 #include <errno.h>
+#include <pthread.h>
+#include <fcntl.h>
+#include <stdint.h>
 #include "shm_fifo.h"
 #include "conf.h"
+#include "da.h"
+#include "analyse.h"
 
 //  CONFIG_NAME : Nom du fichier de configuration.
 #define CONFIG_NAME "../qlunch.conf"
@@ -22,10 +27,22 @@
 //  BUFF_SIZE : Taille du buffer de lecture sur l'entrée standard
 #define BUFF_LENGTH 4096
 
+// NUMBER_PIPE : nombre de tube
+#define NUMBER_PIPE 3
+
+#define PIPE_TOKEN '|'
+
+#define TRACK fprintf(stderr, "%s: %d\n", __func__, __LINE__)
+
 typedef struct {
   char fifo_name[NAME_MAX];
   unsigned int fifo_length;
 } conf_t;
+
+typedef struct {
+  conf_t *conf;
+  pid_t pid;
+} cmd_t;
 
 //  kv_once_null : Renvoie 0 si aucun élément akv de longeur nmemb est NULL,
 //    sinon revnoie -1.
@@ -49,10 +66,16 @@ static void process_conf_file(conf_t *conf);
 
 static void dispose_akv(keyval_t **akv, size_t nmemb);
 
+static void *cmd_process(cmd_t *c);
+
 int main(void) {
-  conf_t conf;
-  process_conf_file(&conf);
-  fifo_t *f = shm_fifo_init(conf.fifo_name, conf.fifo_length);
+  conf_t *conf = malloc(sizeof *conf);
+  if (conf == NULL) {
+    fprintf(stderr, "Error not enougth memory.\n");
+    return EXIT_FAILURE;
+  }
+  process_conf_file(conf);
+  fifo_t *f = shm_fifo_init(conf->fifo_name, conf->fifo_length);
   if (f == NULL) {
     fprintf(stderr, "Error not enougth memory.\n");
     return EXIT_FAILURE;
@@ -71,8 +94,19 @@ int main(void) {
         //return EXIT_FAILURE;
       //}
       pid_t p;
+      pthread_t t;
       while ((p = shm_fifo_dequeue(f)) != (pid_t) -1) {
-
+        cmd_t *c = malloc(sizeof *c);
+        if (c == NULL) {
+          continue;
+        }
+        c->conf = conf;
+        c->pid = p;
+        if (pthread_create(&t, NULL, (void *(*)(void *))cmd_process, c) != 0) {
+          shm_fifo_dispose(&f);
+          return EXIT_FAILURE;
+        }
+        // (pause)
       }
     default:
       break;
@@ -185,4 +219,135 @@ void dispose_akv(keyval_t **akv, size_t nmemb) {
   for (size_t i = 0; i < nmemb; ++i) {
     conf_kv_dispose(&akv[i]);
   }
+}
+
+static int write_char_buff(int desc, const char *buffer, size_t length) {
+  const char *pbuf = buffer;
+  while (length > 0) {
+    ssize_t n = write(desc, pbuf, length);
+    if (n == -1) {
+      return -1;
+    }
+    pbuf += n;
+    length -= (size_t) n;
+  }
+  return 0;
+}
+
+void *cmd_process(cmd_t *c) {
+  c = c;
+  da *cmd = da_empty(sizeof(char));
+  if (cmd == NULL) {
+    return NULL;
+  }
+  char tubes[NUMBER_PIPE][PATH_MAX];
+  for (size_t i = 0; i < NUMBER_PIPE; ++i) {
+    if (snprintf(tubes[i], PATH_MAX - 1, "/tmp/%d_%zu", c->pid, i) <= 0) {
+      return NULL;
+    }
+  }
+  int tubes_desc[NUMBER_PIPE];
+  for (size_t i = 0; i < NUMBER_PIPE; ++i) {
+    tubes_desc[i] = open(tubes[i], (i != 0 ? O_WRONLY : O_RDONLY));
+    if (tubes_desc[i] == -1) {
+      perror("open");
+      for (size_t j = 0; j < i; ++j) {
+        close(tubes_desc[j]);
+      }
+      return NULL;
+    }
+  }
+  char buff[BUFF_LENGTH];
+  ssize_t n;
+  do {
+    n = read(tubes_desc[0], buff, BUFF_LENGTH);
+    if (n == -1) {
+      return NULL;
+    }
+    for (size_t i = 0; i < (size_t) n; ++i) {
+      if (buff[i] == '\0') {
+        n = 0;
+        break;
+      }
+      if (da_add(cmd, buff + i) == NULL) {
+        const char *err = "Not enought memory.\n";
+        write_char_buff(tubes_desc[2], err, strlen(err));
+        for (size_t j = 0; j < NUMBER_PIPE; ++j) {
+          close(tubes_desc[j]);
+        }
+        da_dispose(&cmd);
+        return NULL;
+      }
+    }
+  } while (n > 0);
+  size_t nb_p = 0;
+  size_t nb_c = 0;
+  size_t cur = 0;
+  char *mcmd = da_nth(cmd, 0);
+  while (mcmd[cur] != '\0') {
+    if (mcmd[cur] == PIPE_TOKEN) {
+      if (nb_c == 0) {
+        const char *err = "Invalid command send.\n";
+        write_char_buff(tubes_desc[2], err, strlen(err));
+        for (size_t j = 0; j < NUMBER_PIPE; ++j) {
+          close(tubes_desc[j]);
+        }
+        da_dispose(&cmd);
+        return NULL;
+      }
+      mcmd[cur] = '\0';
+      ++nb_p;
+    } else if (mcmd[cur] != ' ' && (nb_c == 0 || nb_p == nb_c)) {
+      fprintf(stderr, "%c\n", mcmd[cur]);
+      ++nb_c;
+    }
+    ++cur;
+  }
+  if (nb_p >= nb_c) {
+    const char *err = "Invalid command send.\n";
+    write_char_buff(tubes_desc[2], err, strlen(err));
+    for (size_t j = 0; j < NUMBER_PIPE; ++j) {
+      close(tubes_desc[j]);
+    }
+    da_dispose(&cmd);
+    return NULL;
+  }
+  if (nb_c > SIZE_MAX / sizeof(char **)) {
+    const char *err = "Not enought memory.\n";
+    write_char_buff(tubes_desc[2], err, strlen(err));
+    for (size_t j = 0; j < NUMBER_PIPE; ++j) {
+      close(tubes_desc[j]);
+    }
+    da_dispose(&cmd);
+    return NULL;
+  }
+
+  char ***cmds = malloc(sizeof(char **) * nb_c);
+  if (cmds == NULL) {
+    const char *err = "Not enought memory.\n";
+    write_char_buff(tubes_desc[2], err, strlen(err));
+    for (size_t j = 0; j < NUMBER_PIPE; ++j) {
+      close(tubes_desc[j]);
+    }
+    da_dispose(&cmd);
+    return NULL;
+  }
+  cur = 0;
+  for (size_t i = 0; i < nb_c; ++i) {
+    cmds[i] = analyse_arg(mcmd + cur);
+    cur += strlen(mcmd + cur) + 1;
+  }
+  for (size_t j = 0; j < NUMBER_PIPE; ++j) {
+    close(tubes_desc[j]);
+  }
+  for (size_t i = 0; i < nb_c; ++i) {
+    fprintf(stderr, "\nCmd %zu\n", i);
+    size_t j = 0;
+    while(cmds[i][j] != NULL) {
+      fprintf(stderr, "Args %zu: %s\n", j, cmds[i][j]);
+      ++j;
+    }
+  }
+  da_dispose(&cmd);
+  return NULL;
 }
