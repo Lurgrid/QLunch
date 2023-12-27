@@ -3,6 +3,8 @@
 #endif
 #define _XOPEN_SOURCE 500
 
+#define _POSIX_C_SOURCE 200809L
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -13,6 +15,8 @@
 #include <pthread.h>
 #include <fcntl.h>
 #include <stdint.h>
+#include <wait.h>
+#include <signal.h>
 #include "shm_fifo.h"
 #include "conf.h"
 #include "da.h"
@@ -37,12 +41,15 @@
 typedef struct {
   char fifo_name[NAME_MAX];
   unsigned int fifo_length;
+  unsigned int time;
 } conf_t;
 
 typedef struct {
   conf_t *conf;
   pid_t pid;
 } cmd_t;
+
+static conf_t *conf;
 
 //  kv_once_null : Renvoie 0 si aucun élément akv de longeur nmemb est NULL,
 //    sinon revnoie -1.
@@ -68,45 +75,81 @@ static void dispose_akv(keyval_t **akv, size_t nmemb);
 
 static void *cmd_process(cmd_t *c);
 
+static int pipe_engine(char ***cmds, size_t nmemb, int *tubes_desc);
+
+static void gestionnaire(int signum);
+
 int main(void) {
-  conf_t *conf = malloc(sizeof *conf);
+  conf = malloc(sizeof *conf);
   if (conf == NULL) {
     fprintf(stderr, "Error not enougth memory.\n");
     return EXIT_FAILURE;
   }
   process_conf_file(conf);
-  fifo_t *f = shm_fifo_init(conf->fifo_name, conf->fifo_length);
-  if (f == NULL) {
-    fprintf(stderr, "Error not enougth memory.\n");
-    return EXIT_FAILURE;
-  }
   switch (fork()) {
     case -1:
       fprintf(stderr, "Error on intialising the server.\n");
+      shm_fifo_unlink(conf->fifo_name);
+      free(conf);
       return EXIT_FAILURE;
     case 0:
       if (setsid() == (pid_t) -1) {
+        free(conf);
         fprintf(stderr, "Error on intialising the server.\n");
         return EXIT_FAILURE;
       }
-      //if (close(STDIN_FILENO) != 0 ||  close(STDOUT_FILENO) != 0
-          //||  close(STDERR_FILENO) != 0) {
-        //return EXIT_FAILURE;
-      //}
+      if (close(STDIN_FILENO) != 0 || close(STDOUT_FILENO) != 0
+          || close(STDERR_FILENO) != 0) {
+        free(conf);
+        return EXIT_FAILURE;
+      }
+      fifo_t *f = shm_fifo_init(conf->fifo_name, conf->fifo_length);
+      if (f == NULL) {
+        fprintf(stderr, "Error not enougth memory.\n");
+        free(conf);
+        return EXIT_FAILURE;
+      }
+      struct sigaction act = {
+        .sa_handler = gestionnaire,
+        .sa_flags = SA_NODEFER,
+      };
+      if (sigemptyset(&act.sa_mask) != 0) {
+        shm_fifo_unlink(conf->fifo_name);
+        fprintf(stderr, "Error not enougth memory.\n");
+        free(conf);
+        return EXIT_FAILURE;
+      }
+      if (sigaction(SIGTERM, &act, NULL) != 0) {
+        shm_fifo_unlink(conf->fifo_name);
+        fprintf(stderr, "Error not enougth memory.\n");
+        free(conf);
+        return EXIT_FAILURE;
+      }
+      if (sigaction(SIGHUP, &act, NULL) != 0) {
+        shm_fifo_unlink(conf->fifo_name);
+        fprintf(stderr, "Error not enougth memory.\n");
+        free(conf);
+        return EXIT_FAILURE;
+      }
       pid_t p;
       pthread_t t;
-      while ((p = shm_fifo_dequeue(f)) != (pid_t) -1) {
-        cmd_t *c = malloc(sizeof *c);
-        if (c == NULL) {
-          continue;
+      while (1) {
+        if ((p = shm_fifo_dequeue(f)) != (pid_t) -1) {
+          cmd_t *c = malloc(sizeof *c);
+          if (c == NULL) {
+            continue;
+          }
+          c->conf = conf;
+          c->pid = p;
+          if (pthread_create(&t, NULL, (void *(*)(void *))cmd_process,
+              c) != 0) {
+            shm_fifo_unlink(conf->fifo_name);
+            free(conf);
+            free(c);
+            return EXIT_FAILURE;
+          }
+          sleep(conf->time);
         }
-        c->conf = conf;
-        c->pid = p;
-        if (pthread_create(&t, NULL, (void *(*)(void *))cmd_process, c) != 0) {
-          shm_fifo_dispose(&f);
-          return EXIT_FAILURE;
-        }
-        // (pause)
       }
     default:
       break;
@@ -170,6 +213,8 @@ void process_conf_file(conf_t *conf) {
     conf_kv_init("FIFO_NAME", conf->fifo_name,
         (int (*)(void *, const char *, const char **))get_fifo_name),
     conf_kv_init("FIFO_LENGTH", &conf->fifo_length,
+        (int (*)(void *, const char *, const char **))get_fifo_length),
+    conf_kv_init("FIFO_TIME", &conf->time,
         (int (*)(void *, const char *, const char **))get_fifo_length),
   };
   if (kv_once_null(akv, ARRAY_LENGTH(akv)) != 0) {
@@ -235,14 +280,16 @@ static int write_char_buff(int desc, const char *buffer, size_t length) {
 }
 
 void *cmd_process(cmd_t *c) {
-  c = c;
   da *cmd = da_empty(sizeof(char));
   if (cmd == NULL) {
+    free(c);
     return NULL;
   }
   char tubes[NUMBER_PIPE][PATH_MAX];
   for (size_t i = 0; i < NUMBER_PIPE; ++i) {
     if (snprintf(tubes[i], PATH_MAX - 1, "/tmp/%d_%zu", c->pid, i) <= 0) {
+      free(c);
+      da_dispose(&cmd);
       return NULL;
     }
   }
@@ -250,10 +297,11 @@ void *cmd_process(cmd_t *c) {
   for (size_t i = 0; i < NUMBER_PIPE; ++i) {
     tubes_desc[i] = open(tubes[i], (i != 0 ? O_WRONLY : O_RDONLY));
     if (tubes_desc[i] == -1) {
-      perror("open");
       for (size_t j = 0; j < i; ++j) {
         close(tubes_desc[j]);
       }
+      free(c);
+      da_dispose(&cmd);
       return NULL;
     }
   }
@@ -262,13 +310,11 @@ void *cmd_process(cmd_t *c) {
   do {
     n = read(tubes_desc[0], buff, BUFF_LENGTH);
     if (n == -1) {
+      free(c);
+      da_dispose(&cmd);
       return NULL;
     }
     for (size_t i = 0; i < (size_t) n; ++i) {
-      if (buff[i] == '\0') {
-        n = 0;
-        break;
-      }
       if (da_add(cmd, buff + i) == NULL) {
         const char *err = "Not enought memory.\n";
         write_char_buff(tubes_desc[2], err, strlen(err));
@@ -276,7 +322,12 @@ void *cmd_process(cmd_t *c) {
           close(tubes_desc[j]);
         }
         da_dispose(&cmd);
+        free(c);
         return NULL;
+      }
+      if (buff[i] == '\0') {
+        n = 0;
+        break;
       }
     }
   } while (n > 0);
@@ -293,12 +344,12 @@ void *cmd_process(cmd_t *c) {
           close(tubes_desc[j]);
         }
         da_dispose(&cmd);
+        free(c);
         return NULL;
       }
       mcmd[cur] = '\0';
       ++nb_p;
     } else if (mcmd[cur] != ' ' && (nb_c == 0 || nb_p == nb_c)) {
-      fprintf(stderr, "%c\n", mcmd[cur]);
       ++nb_c;
     }
     ++cur;
@@ -310,6 +361,7 @@ void *cmd_process(cmd_t *c) {
       close(tubes_desc[j]);
     }
     da_dispose(&cmd);
+    free(c);
     return NULL;
   }
   if (nb_c > SIZE_MAX / sizeof(char **)) {
@@ -319,9 +371,9 @@ void *cmd_process(cmd_t *c) {
       close(tubes_desc[j]);
     }
     da_dispose(&cmd);
+    free(c);
     return NULL;
   }
-
   char ***cmds = malloc(sizeof(char **) * nb_c);
   if (cmds == NULL) {
     const char *err = "Not enought memory.\n";
@@ -330,6 +382,7 @@ void *cmd_process(cmd_t *c) {
       close(tubes_desc[j]);
     }
     da_dispose(&cmd);
+    free(c);
     return NULL;
   }
   cur = 0;
@@ -337,17 +390,104 @@ void *cmd_process(cmd_t *c) {
     cmds[i] = analyse_arg(mcmd + cur);
     cur += strlen(mcmd + cur) + 1;
   }
+  da_dispose(&cmd);
+  pipe_engine(cmds, nb_c, tubes_desc);
   for (size_t j = 0; j < NUMBER_PIPE; ++j) {
     close(tubes_desc[j]);
   }
   for (size_t i = 0; i < nb_c; ++i) {
-    fprintf(stderr, "\nCmd %zu\n", i);
-    size_t j = 0;
-    while(cmds[i][j] != NULL) {
-      fprintf(stderr, "Args %zu: %s\n", j, cmds[i][j]);
-      ++j;
+    dispose_arg(cmds[i]);
+  }
+  free(c);
+  return NULL;
+}
+
+int pipe_engine(char ***cmds, size_t nmemb, int *tubes_desc) {
+  if (nmemb == 0) {
+    return -1;
+  }
+  int tub[2];
+  int cin = -1;
+  for (size_t i = 0; i < nmemb; ++i) {
+    if (i == nmemb - 1) {
+      pid_t p;
+      switch ((p = fork())) {
+        case -1:
+          return -1;
+        case 0:
+          if (cin != -1 && dup2(cin, STDIN_FILENO) == -1) {
+            exit(EXIT_FAILURE);
+          }
+          if (dup2(tubes_desc[1], STDOUT_FILENO) == -1) {
+            exit(EXIT_FAILURE);
+          }
+          if (dup2(tubes_desc[2], STDERR_FILENO) == -1) {
+            exit(EXIT_FAILURE);
+          }
+          execvp(cmds[i][0], cmds[i]);
+          const char *err = "Unknown command.\n";
+          write_char_buff(tubes_desc[2], err, strlen(err));
+          exit(EXIT_FAILURE);
+        default:
+          if (wait(NULL) == (pid_t) -1) {
+            return -1;
+          }
+          return 0;
+      }
+    }
+    if (pipe(tub) != 0) {
+      return -1;
+    }
+    switch (fork()) {
+      case -1:
+        return -1;
+      case 0:
+        if (close(tub[0]) != 0) {
+          exit(EXIT_FAILURE);
+        }
+        if (cin != -1 && dup2(cin, STDIN_FILENO) == -1) {
+          exit(EXIT_FAILURE);
+        }
+        if (cin != -1 && close(cin) != 0) {
+          exit(EXIT_FAILURE);
+        }
+        if (dup2(tub[1], STDOUT_FILENO) == -1) {
+          exit(EXIT_FAILURE);
+        }
+        if (close(tub[1]) != 0) {
+          exit(EXIT_FAILURE);
+        }
+        if (dup2(tubes_desc[2], STDERR_FILENO) == -1) {
+          exit(EXIT_FAILURE);
+        }
+        execvp(cmds[i][0], cmds[i]);
+        const char *err = "Unknown command.\n";
+        write_char_buff(tubes_desc[2], err, strlen(err));
+        exit(EXIT_FAILURE);
+      default:
+        if (close(tub[1]) != 0) {
+          return -1;
+        }
+        if (cin != -1 && close(cin) != 0) {
+          return -1;
+        }
+        cin = tub[0];
     }
   }
-  da_dispose(&cmd);
-  return NULL;
+  return 0;
+}
+
+void gestionnaire(int signum) {
+  switch (signum) {
+    case SIGTERM:
+      shm_fifo_unlink(conf->fifo_name);
+      kill(0, SIGKILL);
+      exit(EXIT_SUCCESS);
+      break;
+    case SIGHUP:
+      process_conf_file(conf);
+      return;
+    default:
+      return;
+  }
 }

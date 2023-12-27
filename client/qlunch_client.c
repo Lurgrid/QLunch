@@ -36,6 +36,7 @@
 typedef struct {
   char fifo_name[NAME_MAX];
   unsigned int fifo_length;
+  unsigned int time;
 } conf_t;
 
 typedef struct {
@@ -266,6 +267,8 @@ void process_conf_file(conf_t *conf) {
     conf_kv_init("FIFO_NAME", conf->fifo_name,
         (int (*)(void *, const char *, const char **))get_fifo_name),
     conf_kv_init("FIFO_LENGTH", &conf->fifo_length,
+        (int (*)(void *, const char *, const char **))get_fifo_length),
+    conf_kv_init("FIFO_TIME", &conf->time,
         (int (*)(void *, const char *, const char **))get_fifo_length),
   };
   if (kv_once_null(akv, ARRAY_LENGTH(akv)) != 0) {
