@@ -18,7 +18,7 @@
 #include "conf.h"
 #include "da.h"
 #include "analyse.h"
-#include "utilitaire.h"
+#include "utility.h"
 
 //  BUFF_SIZE : Taille des divers buffer de lecture et d'ecriture sur les
 //    différent pipes utliser.

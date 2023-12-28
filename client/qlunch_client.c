@@ -15,7 +15,7 @@
 #include "conf.h"
 #include "shm_fifo.h"
 #include "da.h"
-#include "utilitaire.h"
+#include "utility.h"
 
 //  BUFF_SIZE : Taille du buffer de lecture sur l'entrée standard.
 #define BUFF_LENGTH 4096
