@@ -1,8 +1,12 @@
-.PHONY: clean dist
+.PHONY: clean dist zip
 
 name ?= unknown
 
-dist: clean
+dist:
+	$(MAKE) -C server
+	$(MAKE) -C client
+
+zip: clean
 	tar -hzcf "$(name).tar.gz" conf/* analyse/* client/* da/* server/* shm_fifo/* utility/* qlunch.conf qlunch.conf.d makefile
 
 clean:

@@ -127,7 +127,7 @@ int main(void) {
     for (size_t i = 0; i < NUMBER_PIPE; ++i) {
       unlink(tubes[i]);
     }
-    COM_ERROR(ERR_MEMORY, "");
+    COM_ERROR(ERR_MEMORY, " Or the daemon maybe not lunched.");
     return EXIT_FAILURE;
   }
   //  création des buffers de lecture.
@@ -182,6 +182,7 @@ int main(void) {
       const char *p = da_nth(line, 0);
       if (*p == CMD_SYMB) {
         if (is_prefixe(p, QUIT_CMD) == 0) {
+          printf("Leaving qlunch.\n");
           free(files);
           DISPOS_ALL(&f, &line, tubes);
           return EXIT_SUCCESS;
@@ -194,9 +195,9 @@ int main(void) {
           fprintf(stderr, "The '%s' command is unknow. Check the '%s'"
               " command for a list of all command.\n", p,
               HELP_CMD);
-          free(files);
-          DISPOS_ALL(&f, &line, tubes);
-          return EXIT_FAILURE;
+          da_reset(line);
+          WRITE_REPL(files, f, &line, tubes);
+          continue;
         }
       }
       // On effetue une demande au server pour être traiter.
@@ -259,6 +260,7 @@ int main(void) {
       da_reset(line);
     }
   } while (n > 0);
+  printf("\nLeaving qlunch.\n");
   free(files);
   DISPOS_ALL(&f, &line, tubes);
   return EXIT_SUCCESS;
