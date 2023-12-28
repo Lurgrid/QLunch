@@ -138,3 +138,13 @@ int process_conf_file(conf_t *conf) {
       (int (*)(void *))dispose_akv);
   return 0;
 }
+
+int is_prefixe(const char *s1, const char *s2) {
+  if (*s1 == '\0') {
+    return (*s2 == '\0' ? 0 : 1);
+  }
+  if (*s1 != *s2) {
+    return -1;
+  }
+  return is_prefixe(s1 + 1, s2 + 1);
+}

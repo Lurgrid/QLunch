@@ -81,7 +81,7 @@ int main(void) {
   if (process_conf_file(conf) != 0) {
     free(conf);
     return EXIT_FAILURE;
-  } // le malloc de conf qui va rester a vie donc 1 free en moins
+  }
   switch (fork()) {
     case -1:
       INIT_SERV_ERROR(conf, "Creating processes wasn't succesfull. \n%s", "");
