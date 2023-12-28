@@ -1,3 +1,5 @@
+// Programme présantant un exemple d'utilisation du module shm_fifo
+
 #include <stdlib.h>
 #include <stdio.h>
 #include "shm_fifo.h"
