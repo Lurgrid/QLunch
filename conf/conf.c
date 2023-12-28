@@ -84,7 +84,7 @@ static const char *prefix(const char *s1, const char *s2) {
 }
 
 process_t conf_process(keyval_t **akv, size_t nmemb, FILE *f, size_t *index,
-  const char **err) {
+    const char **err) {
   da *line = da_empty(sizeof(char));
   if (line == NULL) {
     *err = NULL;

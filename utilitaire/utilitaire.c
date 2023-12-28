@@ -11,7 +11,7 @@
     fprintf(stderr, "Error on using the configuration file of the server. ");  \
     fprintf(stderr, (reason), __VA_ARGS__);                                    \
     array_map(akv, ARRAY_LENGTH(akv), sizeof(*akv),                            \
-    (int (*)(void *))dispose_akv);                                             \
+        (int (*)(void *))dispose_akv);                                         \
 }
 
 int array_map(void *base, size_t nmemb, size_t size, int (*f)(void *v)) {
@@ -141,7 +141,7 @@ int process_conf_file(conf_t *conf) {
 
 int is_prefixe(const char *s1, const char *s2) {
   if (*s1 == '\0') {
-    return (*s2 == '\0' ? 0 : 1);
+    return *s2 == '\0' ? 0 : 1;
   }
   if (*s1 != *s2) {
     return -1;

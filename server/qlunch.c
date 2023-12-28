@@ -30,7 +30,7 @@
 // PIPE_TOKEN : caractère représentant un pipe.
 #define PIPE_TOKEN '|'
 
-// INIT_SERV_ERROR : Macro fonction gérant les erreurs d'initialisation du 
+// INIT_SERV_ERROR : Macro fonction gérant les erreurs d'initialisation du
 //    server.
 #define INIT_SERV_ERROR(conf, reason, ...) {                                   \
     fprintf(stderr, "Error on lunching the server. ");                         \
@@ -55,20 +55,20 @@
 }
 
 //  conf : Variable static décrivant la configuration du server. Cette variable
-//    est liée au contenu du fichier de chemin d'accés CONFIG_NAME. 
+//    est liée au contenu du fichier de chemin d'accés CONFIG_NAME.
 static conf_t *conf;
 
 // sig_handler : Gestionnaire de signaux du server.
 static void sig_handler(int signum);
 
-//  cmd_process : Fonction gérant la gestion des commandes recu de 
-//    l'utilisateur. 
+//  cmd_process : Fonction gérant la gestion des commandes recu de
+//    l'utilisateur.
 //    Renvoie NULL.
 static void *cmd_process(pid_t *p);
 
-//  pipe_engine : Fonction gérant les commandes de la forme : 
+//  pipe_engine : Fonction gérant les commandes de la forme :
 //    cmd | cmd2 | ... | cmdn, recu par le client.
-//    Renvoie une valeur nulle en cas de réussite. Une valeur différente de 0 
+//    Renvoie une valeur nulle en cas de réussite. Une valeur différente de 0
 //    dans le cas contraire.
 static int pipe_engine(char ***cmds, size_t nmemb, int *tubes_desc);
 

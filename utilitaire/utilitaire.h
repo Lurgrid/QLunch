@@ -34,9 +34,9 @@
 // conf_t : structure regroupant les information nécéssaire à la configuration
 //  du server.
 typedef struct {
-	char fifo_name[NAME_MAX];
-	unsigned int fifo_length;
-	unsigned int time;
+  char fifo_name[NAME_MAX];
+  unsigned int fifo_length;
+  unsigned int time;
 } conf_t;
 
 //  array_map : apllique à tous les éléments du tableau pointé par base de

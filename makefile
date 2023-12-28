@@ -3,7 +3,7 @@
 name ?= unknown
 
 dist: clean
-	tar -hzcf "$(name).tar.gz" conf/* makefile
+	tar -hzcf "$(name).tar.gz" conf/* analyse/* client/* da/* server/* shm_fifo/* utilitaire/* qlunch.conf qlunch.conf.d makefile
 
 clean:
 	$(MAKE) -C conf clean

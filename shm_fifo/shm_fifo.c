@@ -90,7 +90,7 @@ fifo_t *shm_fifo_open(const char *name, unsigned int length) {
     return NULL;
   }
   fifo_t *d = mmap(NULL, sizeof *d + length * sizeof(pid_t),
-      PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
+          PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
   if (d == MAP_FAILED) {
     close(shm_fd);
     return NULL;

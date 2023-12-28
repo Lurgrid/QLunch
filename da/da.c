@@ -68,7 +68,7 @@ void *da_nth(da *d, size_t n) {
   if (n >= d->nmemb) {
     return NULL;
   }
-  return (void *)((char *)d->ref + n * d->size);
+  return (void *) ((char *) d->ref + n * d->size);
 }
 
 size_t da_length(da *d) {
@@ -78,4 +78,3 @@ size_t da_length(da *d) {
 void da_reset(da *d) {
   d->nmemb = 0;
 }
-

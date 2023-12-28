@@ -70,6 +70,6 @@ extern void conf_kv_dispose(keyval_t **kv);
 //          couple clé-valeur générateur de l'erreur et *err pointe sur une
 //          chaine de caractère descripteur de l'erreur.
 extern process_t conf_process(keyval_t **akv, size_t nmemb, FILE *f,
-  size_t *index, const char **err);
+    size_t *index, const char **err);
 
 #endif
