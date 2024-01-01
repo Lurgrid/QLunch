@@ -7,7 +7,7 @@ dist:
 	$(MAKE) -C client
 
 zip: clean
-	tar -hzcf "$(name).tar.gz" conf/* analyse/* client/* da/* server/* shm_fifo/* utility/* qlunch.conf qlunch.conf.d makefile
+	tar -hzcf "$(name).tar.gz" conf/* analyse/* client/* da/* server/* shm_fifo/* utility/* qlunch.conf qlunch.conf.d LICENSE README.md cmpt.pdf makefile
 
 clean:
 	$(MAKE) -C conf clean
